@@ -1,5 +1,5 @@
 [[config]]
-project_name = "GGLBot"
+project_name = "Fury"
 bot_configs = ["rlbot/bot.toml"]
 
 [config.builder_config]

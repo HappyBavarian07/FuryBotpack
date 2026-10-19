@@ -1,4 +1,6 @@
 #include "RLBotClient.h"
+#include "obs/KickoffFunctions.h"
+#include <algorithm>
 
 using namespace RLGC;
 
@@ -32,10 +34,12 @@ namespace
         pd.boost = playerInfo->boost();
 
         pd.isOnGround = (playerInfo->air_state() == rlbot::flat::AirState::OnGround);
-        pd.hasJumped = playerInfo->has_jumped();
         pd.hasDoubleJumped = playerInfo->has_double_jumped();
         pd.hasFlipped = playerInfo->has_dodged();
-        pd.isDemoed = playerInfo->demolished_timeout() >= 0.f;
+        pd.isJumping = playerInfo->air_state() == rlbot::flat::AirState::Jumping;
+        pd.isFlipping = playerInfo->air_state() == rlbot::flat::AirState::Dodging;
+        pd.hasJumped = playerInfo->has_jumped() || pd.hasFlipped || pd.hasDoubleJumped || pd.isJumping;
+        pd.isDemoed = playerInfo->demolished_timeout() > 0.f;
 
         // Approximate airtime timers (used for HasFlipOrJump behavior)
         if (pd.isOnGround) {
@@ -45,7 +49,13 @@ namespace
         else {
             timing.airTime += dtSec;
 
-            timing.airTimeSinceJump = pd.hasJumped ? timing.airTime : 0.f;
+            timing.airTimeSinceJump = pd.hasJumped && !pd.isJumping ? timing.airTimeSinceJump + dtSec : 0.f;
+            if (pd.hasJumped && !pd.hasFlipped && !pd.hasDoubleJumped && !pd.isJumping &&
+                playerInfo->dodge_timeout() > 0.f) {
+                timing.airTimeSinceJump = std::clamp(
+                    RLConst::DOUBLEJUMP_MAX_DELAY - playerInfo->dodge_timeout(),
+                    0.f, RLConst::DOUBLEJUMP_MAX_DELAY);
+            }
         }
 
         pd.airTime = timing.airTime;
@@ -66,6 +76,7 @@ namespace
             gs.players.reserve(n);
             for (int i = 0; i < n; i++) {
                 gs.players.push_back(ToPlayer(players->Get(i), dtSec, playerTiming[i]));
+                gs.players.back().index = i;
             }
         }
 
@@ -114,21 +125,48 @@ RLBotBot::~RLBotBot() {}
 void RLBotBot::update(rlbot::flat::GamePacket const* packet,
     rlbot::flat::BallPrediction const* ballPrediction_) noexcept
 {
-    if (!packet || !packet->match_info() || !packet->balls() || packet->balls()->size() == 0) {
+    if (!packet || !packet->match_info() || !packet->players() ||
+        !packet->balls() || packet->balls()->size() == 0) {
         return;
     }
 
     float curTime = packet->match_info()->seconds_elapsed();
-    float deltaTime = curTime - prevTime;
+    const uint32_t frame = packet->match_info()->frame_num();
+    const uint32_t elapsedFrames = frame - prevFrame;
+    if (ticks >= 0 && (curTime < prevTime || elapsedFrames > 0x80000000u)) {
+        ticks = -1;
+        totalTicks = 0;
+        m_botState.clear();
+        m_playerTiming.clear();
+        RLGC::KickoffFunctions::ResetArenaCache(nullptr);
+    }
+    const bool firstPacket = ticks < 0;
+    if (!firstPacket && elapsedFrames == 0) return;
+    const int elapsed = firstPacket ? 0 : static_cast<int>(std::min(elapsedFrames, 65536u));
+    const float deltaTime = elapsed / 120.f;
     prevTime = curTime;
+    prevFrame = frame;
+    ticks = firstPacket ? ctx_->params.tickSkip : ticks + elapsed;
+    totalTicks += elapsed;
 
-    int ticksElapsed = roundf(deltaTime * 120);
-    ticks += ticksElapsed;
+    if (packet->match_info()->match_phase() != rlbot::flat::MatchPhase::Active) {
+        ticks = ctx_->params.tickSkip;
+        m_botState.clear();
+        m_playerTiming.clear();
+        for (const auto index : indices) setOutput(index, {});
+        return;
+    }
+    const bool inferNow = ticks >= ctx_->params.tickSkip;
+    const bool applyPrevious = inferNow && ticks >= ctx_->params.actionDelay;
+    if (inferNow) ticks = 0;
 
     GameState gs = ToGameState(packet, deltaTime, m_playerTiming);
+    gs.deltaTime = deltaTime;
+    gs.lastTickCount = totalTicks;
     
     for (auto const& index : this->indices)
     {
+        if (index >= gs.players.size()) continue;
         auto& st = m_botState[index];
         if (!st.initialized) {
             st.initialized = true;
@@ -138,13 +176,14 @@ void RLBotBot::update(rlbot::flat::GamePacket const* packet,
         }
 
         auto& localPlayer = gs.players[index];
+        if (applyPrevious) st.controls = st.action;
         localPlayer.prevAction = st.controls;
 
-        if (updateAction) {
+        if (inferNow) {
             st.action = ctx_->inferUnit->InferAction(localPlayer, gs, true);
         }
 
-        if (ticks >= (ctx_->params.actionDelay) || ticks == -1) {
+        if (ticks >= ctx_->params.actionDelay) {
             // Apply new action
             st.controls = st.action;
         }
@@ -163,13 +202,74 @@ void RLBotBot::update(rlbot::flat::GamePacket const* packet,
             });
     }
 
-    if (updateAction) {
-        updateAction = false;
-    }
+}
 
-    if (ticks >= ctx_->params.tickSkip || ticks == -1) {
-        // Trigger action update next tick
-        ticks = 0;
-        updateAction = true;
+void RLBotBot::SelfTest(std::shared_ptr<const SharedBotContext> context) {
+    using namespace rlbot::flat;
+    auto check = [](bool condition, const char* message) {
+        if (!condition) throw std::runtime_error(message);
+    };
+    GamePacketT packet;
+    packet.match_info = std::make_unique<MatchInfoT>();
+    packet.match_info->match_phase = MatchPhase::Active;
+    packet.players.push_back(std::make_unique<PlayerInfoT>());
+    packet.players[0]->physics = std::make_unique<Physics>(
+        Vector3(0, -3000, 17), Rotator(0, 0, 0), Vector3(0, 0, 0), Vector3(0, 0, 0));
+    packet.balls.push_back(std::make_unique<BallInfoT>());
+    packet.balls[0]->physics = std::make_unique<Physics>(
+        Vector3(100, 200, 500), Rotator(0, 0, 0), Vector3(200, 300, 100), Vector3(0, 0, 0));
+    packet.boost_pads.assign(34, rlbot::flat::BoostPadState(true, 0));
+    RLBotBot bot({0}, 0, "Fury packet check", context);
+    auto updateFrame = [&](uint32_t frame) {
+        packet.match_info->frame_num = frame;
+        // Frozen seconds test: cadence must follow frame_num, including countdown.
+        flatbuffers::FlatBufferBuilder builder;
+        builder.Finish(GamePacket::Pack(builder, &packet));
+        bot.update(flatbuffers::GetRoot<GamePacket>(builder.GetBufferPointer()), nullptr);
+    };
+    auto sameAction = [](const Action& a, const Action& b) {
+        return std::equal(a.begin(), a.end(), b.begin());
+    };
+    updateFrame(100);
+    const Action pending = bot.m_botState.at(0).action;
+    for (uint32_t frame = 101; frame < 107; ++frame) {
+        updateFrame(frame);
+        check(sameAction(bot.m_botState.at(0).controls, Action{}), "Action applied before delay 7");
     }
+    updateFrame(107);
+    check(sameAction(bot.m_botState.at(0).controls, pending), "Action missing at delay 7");
+    updateFrame(108);
+    check(bot.ticks == 0, "Decision interval is not 8 frames");
+    updateFrame(108);
+    check(bot.ticks == 0, "Duplicate frame advanced cadence");
+    updateFrame(114);
+    const Action pendingAfterDrop = bot.m_botState.at(0).action;
+    updateFrame(116);
+    check(sameAction(bot.m_botState.at(0).controls, pendingAfterDrop), "Dropped frame lost pending action");
+    packet.match_info->match_phase = MatchPhase::Countdown;
+    updateFrame(117);
+    check(bot.m_botState.empty() && bot.getOutput(0).throttle() == 0.f,
+          "Countdown did not clear controls");
+
+    auto& player = *packet.players[0];
+    player.air_state = AirState::InAir;
+    player.has_jumped = true;
+    player.dodge_timeout = 0.2f;
+    flatbuffers::FlatBufferBuilder builder;
+    builder.Finish(GamePacket::Pack(builder, &packet));
+    PlayerTimingState timing;
+    const auto converted = ToPlayer(flatbuffers::GetRoot<GamePacket>(
+        builder.GetBufferPointer())->players()->Get(0), 1.f / 120.f, timing);
+    check(!converted.isDemoed && std::abs(converted.airTimeSinceJump -
+          (RLConst::DOUBLEJUMP_MAX_DELAY - 0.2f)) < 0.0001f, "Dodge timeout translation failed");
+    player.has_jumped = false;
+    player.dodge_timeout = 0.f;
+    builder.Clear();
+    builder.Finish(GamePacket::Pack(builder, &packet));
+    const auto reset = ToPlayer(flatbuffers::GetRoot<GamePacket>(
+        builder.GetBufferPointer())->players()->Get(0), 1.f / 120.f, timing);
+    check(reset.HasFlipReset() && reset.airTimeSinceJump == 0.f, "Flip reset availability translation failed");
+    context->obs->Reset(GameState{});
+    KickoffFunctions::ResetArenaCache(nullptr);
+    std::cout << "PASS: v5 packet flip availability, frame cadence 8/7, duplicate/dropped frames, neutral countdown\n";
 }

@@ -7,6 +7,9 @@ out/
 bob_build/
 _BIN/
 _BOB_OUT/
+build-rel/
+inc/RocketSimV3/target/
+rlbot/collision_meshes/
 rlbot/000-runtime/
 rlbot/*.exe
 *.Dockerfile

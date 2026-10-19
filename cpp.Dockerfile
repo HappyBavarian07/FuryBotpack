@@ -72,6 +72,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 ENV PATH="/root/.cargo/bin:$PATH"
 
 RUN cargo install xwin --locked
+RUN rustup toolchain install 1.95.0 --profile minimal && \
+    rustup default 1.95.0 && rustup target add x86_64-pc-windows-msvc
 
 # Accepting the Microsoft license is required to download the SDK
 # Also list the structure so we can fix paths
@@ -177,6 +179,9 @@ RUN if [ -d /src/rlbot ]; then \
     else \
         echo "No rlbot folder found at /src/rlbot"; \
     fi
+
+RUN cp -r /src/collision_meshes /out/x86_64-unknown-linux-gnu/ && \
+    cp -r /src/collision_meshes /out/x86_64-pc-windows-msvc/
 
 # Emit tar to stdout for bob. Sorting places 000-runtime before the launcher,
 # so bob selects the launcher as the platform entry point.

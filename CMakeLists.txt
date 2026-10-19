@@ -2,6 +2,22 @@ cmake_minimum_required(VERSION 3.22)
 
 project(GGLBot)
 
+set(ROCKETSIM_V3_DIR "${CMAKE_CURRENT_SOURCE_DIR}/inc/RocketSimV3")
+if(WIN32)
+  set(ROCKETSIM_V3_LIB "${ROCKETSIM_V3_DIR}/target/x86_64-pc-windows-msvc/release/rocketsim.lib")
+  set(ROCKETSIM_V3_TARGET --target x86_64-pc-windows-msvc)
+  set(ROCKETSIM_V3_SYSTEM_LIBS ws2_32 userenv bcrypt ntdll)
+else()
+  set(ROCKETSIM_V3_LIB "${ROCKETSIM_V3_DIR}/target/release/librocketsim.a")
+  set(ROCKETSIM_V3_SYSTEM_LIBS pthread dl m)
+endif()
+file(GLOB_RECURSE ROCKETSIM_V3_SOURCES CONFIGURE_DEPENDS "${ROCKETSIM_V3_DIR}/rocketsim/src/*.rs")
+add_custom_command(OUTPUT "${ROCKETSIM_V3_LIB}"
+  COMMAND cargo build --release --locked ${ROCKETSIM_V3_TARGET} --manifest-path "${ROCKETSIM_V3_DIR}/Cargo.toml"
+  DEPENDS ${ROCKETSIM_V3_SOURCES} "${ROCKETSIM_V3_DIR}/Cargo.toml" "${ROCKETSIM_V3_DIR}/Cargo.lock"
+  VERBATIM)
+add_custom_target(rocketsim_v3 DEPENDS "${ROCKETSIM_V3_LIB}")
+
 add_subdirectory(cpp-interface EXCLUDE_FROM_ALL)
 
 # Ensure RLBotCPP-static uses the same std::string ABI as PyTorch/LibTorch.
@@ -32,6 +48,7 @@ add_executable(GGLBotCore
 )
 
 target_compile_features(GGLBotCore PRIVATE cxx_std_20)
+target_compile_definitions(GGLBotCore PRIVATE GGL_STATIC)
 
 target_include_directories(GGLBotCore PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -40,6 +57,12 @@ target_include_directories(GGLBotCore PRIVATE
 )
 
 target_link_libraries(GGLBotCore PRIVATE RLBotCPP-static)
+target_link_libraries(GGLBotCore PRIVATE "${ROCKETSIM_V3_LIB}" ${ROCKETSIM_V3_SYSTEM_LIBS})
+add_dependencies(GGLBotCore rocketsim_v3)
+
+if(MSVC)
+  target_compile_options(GGLBotCore PRIVATE /bigobj)
+endif()
 
 # ---- GGLBot launcher (no Torch dependency) ----
 add_executable(GGLBot launcher/GGLBotLauncher.cpp)
@@ -62,6 +85,8 @@ add_custom_command(TARGET GGLBotCore POST_BUILD
 )
 add_custom_command(TARGET GGLBot POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory "${GGLBOT_DEPLOY_DIR}"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+          "${CMAKE_CURRENT_SOURCE_DIR}/collision_meshes" "${GGLBOT_DEPLOY_DIR}/collision_meshes"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
           "$<TARGET_FILE:GGLBot>"
           "${GGLBOT_DEPLOY_DIR}/$<TARGET_FILE_NAME:GGLBot>"

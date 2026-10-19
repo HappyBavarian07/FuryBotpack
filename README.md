@@ -1,44 +1,73 @@
-# GGLBot - Bob Branch
-The main purpose of this branch of GGLBot is to submit your bot to tournaments or Rocket Host since it allows the host to build your bot using bob the bot builder. If you are just wanting to play your bot in RLBot, the `main` branch is likely what you want to use since it is a simpler process.
+# Fury
 
-## Instructions
-The instructions are broken down into three steps:
-1. Preparing your bot
-2. Submitting your bot
-3. (Optional) Building your bot with bob
+![Fury](rlbot/logo.png)
 
-If you are submitting your bot, you only need to worry about step one and two. The host will build your bot for you.
+Fury 200B for the official RLBot v5 botpack. A single bot, built from
+[SubparN0va/GGLBot's CPU `bob` branch](https://github.com/SubparN0va/GGLBot/tree/bob).
 
-### 1. Preparing your bot for submission
-* Clone the bob branch of this repo recursively: `git clone --branch bob https://github.com/SubparN0va/GGLBot --recurse-submodules`
-* Update `RLBotMain.cpp` with your Obs Builder, Action Parser, and InferUnit config
-  * If creating new obs or parser files, make sure you update the `#include` at the top of `RLBotClient.h`. The Docker builds in a Linux container, which means the headers are case sensitive. Make sure they match exactly, and keep in mind if you're using MSVC it is NOT case sensitive, which means if you get it wrong you won't know until the host builds it in the Linux container.
-* Put your models (.lt files) into the `rlbot\` folder (these will be copied to the output folder automatically at build time)
-* When the host builds your bot, the docker will download and use Libtorch CPU Version 2.7.0 by default
-  * If you need a specific version of LibTorch for your bot, update the Linux and Windows LibTorch download URLs in `cpp.Dockerfile` (lines 80 and 95).
-* Update the `project_name` in bob.toml, and all of bot.toml and loadout.toml to your preference
-* If you're using a logo, name it `logo.png` and put it in the `rlbot\` folder
+Trained for 200 billion steps (~3.70 million hours / 423 years of game time).
+Loves to do a lot of things, dribble, pass and bang the ball.
 
-The build produces a small native launcher named `GGLBot` and a Torch-linked core in `000-runtime\`. The launcher searches for `torch-archive` near the bot first, then checks the current user's standard RLBot data directory. This allows a `bob_build\` package to run from any location without bundling the large LibTorch runtime.
+## Runtime
 
-Note: At this point, if you want, you can build your bot using your IDE to ensure it compiles. Test the executable through RLBot v5 so it receives the required RLBot connection environment. If you do build your bot before submitting it, make sure you don't include the `out\` or `.vs\` folders and don't include generated executables or the `rlbot\000-runtime\` folder when creating your .zip file.
+- Shared RLBot **CPU** PyTorch from `torch-archive`; no CUDA or bundled LibTorch.
+- RocketSim v3 local ball prediction at 120 Hz, sampled at 0.5/1/1.5/2 seconds.
+  Collision meshes are included. Missing v3 initialization is a startup error.
+- 318 observations, 380 discrete actions, ReLU and LayerNorm.
+  Shared head `[1536, 1536]`, policy `[1024, 1024, 1024]`.
+- Deterministic inference, tick skip 8, action delay 7, no X mirroring.
+- Three CPU inference warm-up passes before connecting; their controls are discarded.
+- Blue and orange teams, 1v1/2v2/3v3. One Fury per process, no bot selector.
 
-### 2. Submitting your bot
-* Package the following files and folders into a .zip file:
-  * `cpp-interface\`
-  * `inc\`
-  * `launcher\`
-  * `rlbot\`
-  * `src\`
-  * `bob.toml`
-  * `CMakeLists.txt`
-  * `cpp.Dockerfile`
-* Send the .zip file to the host
+## Build
 
-### 3. Building your bot with bob
-Note: If you're submitting your bot to a tournament or Rocket Host, you can skip this step! The host will build your bot for you using the instructions below.
-* Install bob the bot builder from `https://github.com/swz-git/bob`
-* Install Docker Desktop and make sure it's set to Linux containers
-* In command prompt, navigate to your GGLBot root directory. Then enter `<path to bob.exe> build bob.toml`
-* Make sure RLBot's `torch-archive` runtime is installed
-* In RLBot v5, add the `bob_build\` folder; it can remain outside the RLBot bots directory
+```sh
+git clone --recurse-submodules https://github.com/HappyBavarian07/FuryBotpack.git
+cd FuryBotpack
+bob build bob.toml
+bob split bob_build
+```
+
+Bob uses Linux Docker containers to build both Linux and Windows packages
+against the same public CPU PyTorch archives as the botpack. It supplies
+platform launch commands and copies the logo/loadout into the output.
+Add the platform output folder to RLBot v5. The launcher locates the shared
+`torch-archive` beside/above the package or in RLBot's standard user data folder.
+
+For a native Windows build, initialize the Visual Studio x64 environment first:
+
+```sh
+cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-rel --config Release -- -j 30
+rlbot\GGLBot.exe --self-test
+```
+
+Rust 1.95+ and CMake 3.22+ are required. The native build defaults to
+`%LOCALAPPDATA%/RLBot5/bots/torch-archive/torch`; override with
+`-DLIBTORCH_ROOT=<path>` when needed. The Docker build installs Rust 1.95.0.
+
+`--self-test` checks actual CPU model loading/inference for both teams in all
+three modes, a v3 wall bounce, v5 flip availability, countdown controls, and
+8/7 frame timing including duplicate and dropped packets. It does not launch
+Rocket League or establish in-game playing strength.
+
+## Provenance
+
+Base: GGLBot `bob` commit `bb9178779f0012f4d340083a21df1bd840d32c4d`.
+Fury observation builder, old action table, kickoff features, logo, loadout,
+and checkpoint were copied from the existing FuryGGLBot package on 2026-10-20.
+The v3 adapter retains its C API layout and trajectory sampling; the Rust
+backend is a vendored snapshot with its original MIT license at
+`inc/RocketSimV3/LICENSE`. The upstream C++ RocketSim submodule remains for
+the GGL observation/state types; ball prediction runs through v3.
+
+Checkpoint: **200,000,984,297 steps**. SHA-256:
+
+| File | SHA-256 |
+|---|---|
+| `POLICY.lt` | `b6af2945b828a65b21ff3497664e59fbad734fb183b721f648811dbe4bdb8a99` |
+| `SHARED_HEAD.lt` | `925ed4599acf66540a98da9f119e7cf723c7b3d9f04c36fb04b73239bbe324cf` |
+
+Packaging references: [RLBot botpack](https://github.com/RLBot/botpack),
+[NectoFamily](https://github.com/VirxEC/NectoFamily/tree/e5510350299e15a850d4388705ad4ee7dfe0e9ed),
+[Elementv5](https://github.com/VirxEC/Elementv5/tree/fd33e506ffe6a78277eb098a245a1c08ed1f33ed).

@@ -1,8 +1,8 @@
 #pragma once
 
 #include <rlbot/Bot.h>
-#include <RLGymCPP/ObsBuilders/AdvancedObs.h>
-#include <RLGymCPP/ActionParsers/DefaultAction.h>
+#include "obs/FuryOBSPadded200B.h"
+#include "action/AdvancedActionOld.h"
 #include <GigaLearnCPP/InferUnit.h>
 
 namespace GGL { class InferUnit; }
@@ -38,9 +38,10 @@ public:
     
 
     // Persistent info
-    bool updateAction = true;
     int ticks = -1;
     float prevTime = 0;
+    uint64_t totalTicks = 0;
+    uint32_t prevFrame = 0;
 
     RLBotBot() noexcept = delete;
     ~RLBotBot() noexcept override;
@@ -52,6 +53,7 @@ public:
 
     void update(rlbot::flat::GamePacket const* packet_,
         rlbot::flat::BallPrediction const* ballPrediction_) noexcept override;
+    static void SelfTest(std::shared_ptr<const SharedBotContext> context);
 
 private:
     std::shared_ptr<const SharedBotContext> ctx_;

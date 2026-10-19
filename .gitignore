@@ -1,11 +1,17 @@
 /.vs
 /out/build
 *.lt
+!rlbot/POLICY.lt
+!rlbot/SHARED_HEAD.lt
 *.exe
 CMakeSettings.json
 /libtorch
 /bob_build
 /rlbot/000-runtime
 rlbot/logo.png
+!rlbot/logo.png
+/inc/RocketSimV3/target/
+/build-rel/
+/rlbot/collision_meshes/
 /build
 /.idea
