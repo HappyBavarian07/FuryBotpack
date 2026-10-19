@@ -6,7 +6,7 @@
 *.exe
 CMakeSettings.json
 /libtorch
-/bob_build
+/bob_build*/
 /rlbot/000-runtime
 rlbot/logo.png
 !rlbot/logo.png

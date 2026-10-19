@@ -4,7 +4,7 @@
 .gitmodules
 build/
 out/
-bob_build/
+bob_build*/
 _BIN/
 _BOB_OUT/
 build-rel/

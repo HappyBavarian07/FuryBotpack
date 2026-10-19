@@ -18,6 +18,8 @@ Loves to do a lot of things, dribble, pass and bang the ball.
 - Deterministic inference, tick skip 8, action delay 7, no X mirroring.
 - Three CPU inference warm-up passes before connecting; their controls are discarded.
 - Blue and orange teams, 1v1/2v2/3v3. One Fury per process, no bot selector.
+- Agent ID `happybavarian07/fury`, distinct from the local comparison bot's
+  `happybavarian07/fury-200b`, so both can be loaded together in RLBot.
 
 ## Build
 

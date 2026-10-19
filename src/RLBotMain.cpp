@@ -114,7 +114,7 @@ int main(int argc, char** argv) {
         const char* agentId = std::getenv("RLBOT_AGENT_ID");
         FuryManager manager;
         if (!manager.connect(host ? host : "127.0.0.1", port ? port : "23234",
-                             agentId ? agentId : "happybavarian07/fury-200b", false))
+                             agentId ? agentId : "happybavarian07/fury", false))
             return EXIT_FAILURE;
         return EXIT_SUCCESS;
     } catch (const std::exception& error) {

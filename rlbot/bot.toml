@@ -1,6 +1,6 @@
 #:schema https://rlbot.org/schemas/agent.json
 [settings]
-agent_id = "happybavarian07/fury-200b"
+agent_id = "happybavarian07/fury"
 name = "Fury"
 loadout_file = "loadout.toml"
 run_command = "GGLBot.exe"
