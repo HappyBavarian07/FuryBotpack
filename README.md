@@ -14,12 +14,11 @@ Loves to do a lot of things, dribble, pass and bang the ball.
 - RocketSim v3 local ball prediction at 120 Hz, sampled at 0.5/1/1.5/2 seconds.
   Collision meshes are included. Missing v3 initialization is a startup error.
 - 318 observations, 380 discrete actions, ReLU and LayerNorm.
-  Shared head `[1536, 1536]`, policy `[1024, 1024, 1024]`.
-- Deterministic inference, tick skip 8, action delay 7, no X mirroring.
+  Shared head and policy.
+- Deterministic inference, tick skip 8.
 - Three CPU inference warm-up passes before connecting; their controls are discarded.
 - Blue and orange teams, 1v1/2v2/3v3. One Fury per process, no bot selector.
-- Agent ID `happybavarian07/fury`, distinct from the local comparison bot's
-  `happybavarian07/fury-200b`, so both can be loaded together in RLBot.
+- Agent ID `happybavarian07/fury`.
 
 ## Build
 
@@ -57,7 +56,7 @@ Rocket League or establish in-game playing strength.
 
 Base: GGLBot `bob` commit `bb9178779f0012f4d340083a21df1bd840d32c4d`.
 Fury observation builder, old action table, kickoff features, logo, loadout,
-and checkpoint were copied from the existing FuryGGLBot package on 2026-10-20.
+and checkpoint were prepared for this submission.
 The v3 adapter retains its C API layout and trajectory sampling; the Rust
 backend is a vendored snapshot with its original MIT license at
 `inc/RocketSimV3/LICENSE`. The upstream C++ RocketSim submodule remains for
@@ -69,7 +68,3 @@ Checkpoint: **200,000,984,297 steps**. SHA-256:
 |---|---|
 | `POLICY.lt` | `b6af2945b828a65b21ff3497664e59fbad734fb183b721f648811dbe4bdb8a99` |
 | `SHARED_HEAD.lt` | `925ed4599acf66540a98da9f119e7cf723c7b3d9f04c36fb04b73239bbe324cf` |
-
-Packaging references: [RLBot botpack](https://github.com/RLBot/botpack),
-[NectoFamily](https://github.com/VirxEC/NectoFamily/tree/e5510350299e15a850d4388705ad4ee7dfe0e9ed),
-[Elementv5](https://github.com/VirxEC/Elementv5/tree/fd33e506ffe6a78277eb098a245a1c08ed1f33ed).

@@ -15,3 +15,6 @@ rlbot/logo.png
 /rlbot/collision_meshes/
 /build
 /.idea
+# Local-only dev notes (not for public repo)
+AGENTS.md
+LOCAL_STATUS.md
