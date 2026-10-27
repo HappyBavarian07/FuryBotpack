@@ -159,8 +159,12 @@ void RLBotBot::update(rlbot::flat::GamePacket const* packet,
         for (const auto index : indices) setOutput(index, {});
         return;
     }
-    const bool inferNow = ticks >= ctx_->params.tickSkip;
-    const bool applyPrevious = inferNow && ticks >= ctx_->params.actionDelay;
+    // On GoalScored the phase is often shorter than one tickSkip window, so
+    // infer and apply immediately so the bot keeps reacting after a goal
+    // instead of holding the last input until Replay clears it.
+    const bool isGoalScored = matchPhase == rlbot::flat::MatchPhase::GoalScored;
+    const bool inferNow = isGoalScored || ticks >= ctx_->params.tickSkip;
+    const bool applyPrevious = inferNow && (isGoalScored || ticks >= ctx_->params.actionDelay);
     if (inferNow) ticks = 0;
 
     GameState gs = ToGameState(packet, deltaTime, m_playerTiming);
@@ -192,8 +196,8 @@ void RLBotBot::update(rlbot::flat::GamePacket const* packet,
             st.action = ctx_->inferUnit->InferAction(localPlayer, gs, true);
         }
 
-        if (ticks >= ctx_->params.actionDelay) {
-            // Apply new action
+        if (isGoalScored || ticks >= ctx_->params.actionDelay) {
+            // Apply new action (immediately on GoalScored)
             st.controls = st.action;
         }
 
@@ -281,21 +285,19 @@ void RLBotBot::SelfTest(std::shared_ptr<const SharedBotContext> context) {
     check(bot.ticks == 0 && sameAction(bot.m_botState.at(0).controls, kickoffAction),
           "Kickoff-to-Active transition reset action timing");
 
-    const Action goalPending = bot.m_botState.at(0).action;
     packet.match_info->match_phase = MatchPhase::GoalScored;
     updateFrame(127);
-    check(bot.m_botState.contains(0) && bot.ticks == 1 &&
-          sameAction(bot.m_botState.at(0).controls, kickoffAction), "GoalScored reset action timing");
-    updateFrame(133);
-    check(bot.ticks == 7 && sameAction(bot.m_botState.at(0).controls, goalPending),
-          "Post-goal action delay is not 7 frames");
-    updateFrame(134);
-    check(bot.ticks == 0 && bot.m_botState.contains(0), "GoalScored suppressed continued inference");
+    // GoalScored infers and applies immediately (brief phase before Replay)
+    check(bot.m_botState.contains(0) && bot.ticks == 0, "GoalScored suppressed immediate inference");
+    check(sameAction(bot.m_botState.at(0).controls, bot.m_botState.at(0).action),
+          "GoalScored did not apply action immediately");
+    updateFrame(128);
+    check(bot.ticks == 0, "GoalScored does not infer every frame");
     packet.match_info->match_phase = MatchPhase::Replay;
-    updateFrame(135);
+    updateFrame(129);
     check(bot.m_botState.empty() && bot.getOutput(0).throttle() == 0.f, "Replay did not clear controls");
     packet.match_info->match_phase = MatchPhase::Countdown;
-    updateFrame(136);
+    updateFrame(130);
     check(bot.m_botState.empty() && bot.getOutput(0).throttle() == 0.f,
           "Post-goal Countdown did not clear controls");
 
