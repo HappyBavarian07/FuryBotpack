@@ -2,6 +2,7 @@
 
 #include <GigaLearnCPP/Models.h>
 #include <GigaLearnCPP/InferenceModels.h>
+#include <c10/core/InferenceMode.h>
 
 GGL::InferUnit::InferUnit(
 	RLGC::ObsBuilder* obsBuilder, int obsSize, RLGC::ActionParser* actionParser,
@@ -39,7 +40,28 @@ RLGC::Action GGL::InferUnit::InferAction(
 	bool deterministic,
 	float temperature
 ) {
-	return BatchInferActions({ player }, { state }, deterministic, temperature)[0];
+	auto obs = obsBuilder->BuildObs(player, state);
+	if (static_cast<int>(obs.size()) != obsSize)
+		RG_ERR_CLOSE("InferUnit: Expected " << obsSize << " observations, got " << obs.size());
+	auto mask = actionParser->GetActionMask(player, state);
+	const int numActions = actionParser->GetActionAmount();
+	if (static_cast<int>(mask.size()) != numActions)
+		RG_ERR_CLOSE("InferUnit: Expected " << numActions << " action mask entries, got " << mask.size());
+
+	try {
+		c10::InferenceMode inferenceGuard;
+		const auto device = useGPU ? torch::kCUDA : torch::kCPU;
+		// Local buffers stay alive through the synchronous forward and scalar read.
+		auto tObs = torch::from_blob(obs.data(), {1, obsSize}, torch::kFloat32).to(device);
+		auto tMask = torch::from_blob(mask.data(), {1, numActions}, torch::kUInt8).to(device);
+		torch::Tensor actions;
+		GGL::Infer::InferActions(*models, tObs, tMask, deterministic, temperature,
+			/*halfPrec*/ false, &actions, nullptr);
+		return actionParser->ParseAction(static_cast<int>(actions.item<int64_t>()), player, state);
+	}
+	catch (const std::exception& e) {
+		RG_ERR_CLOSE("InferUnit: Exception when inferring model: " << e.what());
+	}
 }
 
 std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(

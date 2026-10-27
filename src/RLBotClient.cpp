@@ -149,7 +149,10 @@ void RLBotBot::update(rlbot::flat::GamePacket const* packet,
     ticks = firstPacket ? ctx_->params.tickSkip : ticks + elapsed;
     totalTicks += elapsed;
 
-    if (packet->match_info()->match_phase() != rlbot::flat::MatchPhase::Active) {
+    const auto matchPhase = packet->match_info()->match_phase();
+    if (matchPhase != rlbot::flat::MatchPhase::Active &&
+        matchPhase != rlbot::flat::MatchPhase::Kickoff &&
+        matchPhase != rlbot::flat::MatchPhase::GoalScored) {
         ticks = ctx_->params.tickSkip;
         m_botState.clear();
         m_playerTiming.clear();
@@ -163,7 +166,13 @@ void RLBotBot::update(rlbot::flat::GamePacket const* packet,
     GameState gs = ToGameState(packet, deltaTime, m_playerTiming);
     gs.deltaTime = deltaTime;
     gs.lastTickCount = totalTicks;
-    
+    if (matchPhase == rlbot::flat::MatchPhase::GoalScored) {
+        gs.ball.pos = Vec{0.f, 0.f, 900.f};
+        gs.ball.vel = Vec{};
+        gs.ball.angVel = Vec{};
+        gs.ball.rotMat = RotMat::GetIdentity();
+    }
+
     for (auto const& index : this->indices)
     {
         if (index >= gs.players.size()) continue;
@@ -251,6 +260,63 @@ void RLBotBot::SelfTest(std::shared_ptr<const SharedBotContext> context) {
     check(bot.m_botState.empty() && bot.getOutput(0).throttle() == 0.f,
           "Countdown did not clear controls");
 
+    packet.players[0]->boost = 33.f;
+    packet.players[0]->physics = std::make_unique<Physics>(
+        Vector3(0, -4608, 17), Rotator(0, 1.5707963f, 0), Vector3(0, 0, 0), Vector3(0, 0, 0));
+    packet.balls[0]->physics = std::make_unique<Physics>(
+        Vector3(0, 0, RLConst::BALL_REST_Z), Rotator(0, 0, 0), Vector3(0, 0, 0), Vector3(0, 0, 0));
+    packet.match_info->match_phase = MatchPhase::Kickoff;
+    updateFrame(118);
+    check(bot.m_botState.contains(0), "Playable Kickoff phase suppressed inference");
+    const Action kickoffAction = bot.m_botState.at(0).action;
+    for (uint32_t frame = 119; frame < 125; ++frame) {
+        updateFrame(frame);
+        check(sameAction(bot.m_botState.at(0).controls, Action{}), "Kickoff bypassed action delay 7");
+    }
+    updateFrame(125);
+    check(sameAction(bot.m_botState.at(0).controls, kickoffAction), "Kickoff action was not applied");
+    check(bot.getOutput(0).throttle() > 0.f, "Fury did not drive forward during playable kickoff");
+    packet.match_info->match_phase = MatchPhase::Active;
+    updateFrame(126);
+    check(bot.ticks == 0 && sameAction(bot.m_botState.at(0).controls, kickoffAction),
+          "Kickoff-to-Active transition reset action timing");
+
+    const Action goalPending = bot.m_botState.at(0).action;
+    packet.match_info->match_phase = MatchPhase::GoalScored;
+    updateFrame(127);
+    check(bot.m_botState.contains(0) && bot.ticks == 1 &&
+          sameAction(bot.m_botState.at(0).controls, kickoffAction), "GoalScored reset action timing");
+    updateFrame(133);
+    check(bot.ticks == 7 && sameAction(bot.m_botState.at(0).controls, goalPending),
+          "Post-goal action delay is not 7 frames");
+    updateFrame(134);
+    check(bot.ticks == 0 && bot.m_botState.contains(0), "GoalScored suppressed continued inference");
+    packet.match_info->match_phase = MatchPhase::Replay;
+    updateFrame(135);
+    check(bot.m_botState.empty() && bot.getOutput(0).throttle() == 0.f, "Replay did not clear controls");
+    packet.match_info->match_phase = MatchPhase::Countdown;
+    updateFrame(136);
+    check(bot.m_botState.empty() && bot.getOutput(0).throttle() == 0.f,
+          "Post-goal Countdown did not clear controls");
+
+    auto firstAction = [&](MatchPhase phase, Vector3 ballPos) {
+        packet.balls[0]->physics = std::make_unique<Physics>(
+            ballPos, Rotator(0, 0, 0), Vector3(0, 0, 0), Vector3(0, 0, 0));
+        packet.match_info->match_phase = phase;
+        RLBotBot probe({0}, 0, "Fury ball check", context);
+        flatbuffers::FlatBufferBuilder probeBuilder;
+        probeBuilder.Finish(GamePacket::Pack(probeBuilder, &packet));
+        probe.update(flatbuffers::GetRoot<GamePacket>(probeBuilder.GetBufferPointer()), nullptr);
+        return probe.m_botState.at(0).action;
+    };
+    const Vector3 farBall(3000, 4800, 1800), midBall(0, 0, 900);
+    check(!sameAction(firstAction(MatchPhase::Active, farBall), firstAction(MatchPhase::Active, midBall)),
+          "Ball-override check has no power: Active actions match for both balls");
+    check(sameAction(firstAction(MatchPhase::GoalScored, farBall), firstAction(MatchPhase::GoalScored, midBall)),
+          "GoalScored did not replace the ball with the fixed post-goal ball");
+    check(sameAction(firstAction(MatchPhase::GoalScored, farBall), firstAction(MatchPhase::Active, midBall)),
+          "Post-goal ball is not (0, 0, 900)");
+
     auto& player = *packet.players[0];
     player.air_state = AirState::InAir;
     player.has_jumped = true;
@@ -271,5 +337,5 @@ void RLBotBot::SelfTest(std::shared_ptr<const SharedBotContext> context) {
     check(reset.HasFlipReset() && reset.airTimeSinceJump == 0.f, "Flip reset availability translation failed");
     context->obs->Reset(GameState{});
     KickoffFunctions::ResetArenaCache(nullptr);
-    std::cout << "PASS: v5 packet flip availability, frame cadence 8/7, duplicate/dropped frames, neutral countdown\n";
+    std::cout << "PASS: v5 packet flip availability, frame cadence 8/7, duplicate/dropped frames, neutral countdown/replay, playable kickoff/post-goal\n";
 }

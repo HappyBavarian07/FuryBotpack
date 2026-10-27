@@ -167,6 +167,11 @@ namespace GGL {
 				);
 			}
 
+			seq->eval();
+			for (const auto& module : seq->children())
+				if (auto relu = std::dynamic_pointer_cast<torch::nn::ReLUImpl>(module))
+					relu->options.inplace(true);
+
 			_seqHalfOutdated = true;
 		}
 	};

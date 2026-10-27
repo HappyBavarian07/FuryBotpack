@@ -277,10 +277,7 @@ namespace RLGC {
             AddGoalData(result, player, state, inv);
         }
 
-        FList selfObs = {};
-        selfObs.reserve(64);
-        AddPlayerToObs(selfObs, player, inv, ball, state);
-        result += selfObs;
+        AddPlayerToObs(result, player, inv, ball, state);
 
         std::vector<std::tuple<float, uint32_t, FList> > teammates, opponents;
         teammates.reserve(static_cast<size_t>(std::max(0, maxPlayers - 1)));
@@ -301,6 +298,7 @@ namespace RLGC {
             }
 
             FList playerObs = {};
+            playerObs.reserve(PLAYER_OBS_SIZE);
             AddPlayerToObs(playerObs, otherPlayer, inv, ball, state);
             auto key = makeDistanceKey(otherPlayer);
             ((otherPlayer.team == player.team) ? teammates : opponents)

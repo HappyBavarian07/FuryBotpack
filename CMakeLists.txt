@@ -74,7 +74,7 @@ if(WIN32)
 endif()
 
 # Deploy the launcher beside bot.toml and keep the core in its runtime folder.
-set(GGLBOT_DEPLOY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rlbot")
+set(GGLBOT_DEPLOY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/rlbot" CACHE PATH "Runnable bot output directory")
 set(GGLBOT_RUNTIME_DIR "${GGLBOT_DEPLOY_DIR}/000-runtime")
 add_custom_command(TARGET GGLBotCore POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E make_directory "${GGLBOT_RUNTIME_DIR}"
